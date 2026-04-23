@@ -32,9 +32,9 @@
 #include <memory>
 #include <string>
 
-// Forward declarations
-namespace nav_msgs { namespace msg { class Odometry; } }
-namespace sensor_msgs { namespace msg { class NavSatFix; } }
+// 注意: 不在此处前向声明 nav_msgs::msg::Odometry / sensor_msgs::msg::NavSatFix
+// 原因: 打开ROS2命名空间会导致PCL宏和标准库deduction guide被错误放入该命名空间
+// process() 使用 const void* 参数, 具体类型转换在 rtk_handler.cpp 中完成
 
 // =====================================================================
 // RtkData - 统一RTK数据结构
