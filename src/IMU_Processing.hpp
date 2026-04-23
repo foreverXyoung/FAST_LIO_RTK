@@ -385,7 +385,7 @@ void ImuProcess::Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom, 
           Eigen::Vector3d imu_pos = init_rtk_pose_.toImuPosition();
           init_state.pos = vect3(imu_pos);
           init_state.rot = SO3(init_rtk_pose_.rotation);
-          init_state.grav = init_state.rot * V3D(0, 0, -G_m_s2);
+          init_state.grav = S2(init_state.rot * V3D(0, 0, -G_m_s2));
           init_state.vel = V3D(0, 0, 0);
           kf_state.change_x(init_state);
           rtk_need_init_ = false;
