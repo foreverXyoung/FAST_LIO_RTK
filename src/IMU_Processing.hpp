@@ -383,14 +383,20 @@ void ImuProcess::Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom, 
       if (use_rtk_init_ && rtk_need_init_) {
           state_ikfom init_state = kf_state.get_x();
           Eigen::Vector3d imu_pos = init_rtk_pose_.toImuPosition();
+          Eigen::Vector3d old_pos = init_state.pos;
+          Eigen::Vector3d old_grav(init_state.grav[0], init_state.grav[1], init_state.grav[2]);
           init_state.pos = vect3(imu_pos);
           init_state.rot = SO3(init_rtk_pose_.rotation);
           init_state.grav = S2(init_state.rot * V3D(0, 0, -G_m_s2));
           init_state.vel = V3D(0, 0, 0);
+          Eigen::Vector3d new_grav(init_state.grav[0], init_state.grav[1], init_state.grav[2]);
           kf_state.change_x(init_state);
           rtk_need_init_ = false;
-          std::cout << "RTK Initial Done. IMU pos: " << imu_pos.transpose()
-                    << " (from RTK pos: " << init_rtk_pose_.position.transpose() << ")" << std::endl;
+          std::cout << "[RTK DEBUG] State override:" << std::endl;
+          std::cout << "  pos: " << old_pos.transpose() << " -> " << imu_pos.transpose()
+                    << " (rtk_ant=" << init_rtk_pose_.position.transpose() << ")" << std::endl;
+          std::cout << "  grav: " << old_grav.transpose() << " -> " << new_grav.transpose() << std::endl;
+          std::cout << "  rot_w=" << init_rtk_pose_.rotation.w << " vel=0" << std::endl;
       }
       /** ==================== RTK Extension: Init State Override (END) ==================== **/
 

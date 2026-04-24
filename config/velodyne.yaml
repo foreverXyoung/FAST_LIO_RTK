@@ -36,6 +36,15 @@
                         0., 1., 0., 
                         0., 0., 1.]
 
+        rtk:
+            use_rtk: false
+            rtk_topic: "/gps_odom"
+            rtk_format: 0
+            rtk_wait_time: 2.0
+            ref_lla: [0.0, 0.0, 0.0]
+            T_imu_ant: [0.0, 0.0, 0.0]
+            R_imu_ant: [1., 0., 0., 0., 1., 0., 0., 0., 1.]
+
         publish:
             path_en:  false
             scan_publish_en:  true       # false: close all the point cloud output

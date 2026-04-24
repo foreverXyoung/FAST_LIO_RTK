@@ -36,6 +36,17 @@
                             0., 1., 0.,
                             0., 0., 1.]
 
+        rtk:
+            use_rtk: false                              # true: enable RTK initialization
+            rtk_topic: "/gps_odom"                     # RTK topic
+            rtk_format: 0                               # 0: Odometry, 1: NavSatFix, 2: INSPVAX
+            rtk_wait_time: 2.0                          # Wait time (seconds) for RTK data accumulation
+            ref_lla: [0.0, 0.0, 0.0]                   # Reference LLA (only for NavSatFix)
+            T_imu_ant: [0.0, 0.0, 0.0]
+            R_imu_ant: [1., 0., 0.,
+                           0., 1., 0.,
+                           0., 0., 1.]
+
         publish:
             path_en: true                # true: publish Path
             effect_map_en: false         # true: publish Effects
