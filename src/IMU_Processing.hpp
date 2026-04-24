@@ -374,32 +374,6 @@ void ImuProcess::Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom, 
       cov_acc *= pow(G_m_s2 / mean_acc.norm(), 2);
       imu_need_init_ = false;
 
-      /** ==================== RTK Extension: Init State Override ==================== **/
-      // IMU初始化完成后, 用RTK位姿覆盖EKF初始状态:
-      //   - pos: 天线位置→IMU位置 (使用外参转换)
-      //   - rot: RTK姿态
-      //   - grav: 根据新rot重新计算重力方向
-      //   - vel: 置零 (静态初始化假设)
-      if (use_rtk_init_ && rtk_need_init_) {
-          state_ikfom init_state = kf_state.get_x();
-          Eigen::Vector3d imu_pos = init_rtk_pose_.toImuPosition();
-          Eigen::Vector3d old_pos = init_state.pos;
-          Eigen::Vector3d old_grav(init_state.grav[0], init_state.grav[1], init_state.grav[2]);
-          init_state.pos = vect3(imu_pos);
-          init_state.rot = SO3(init_rtk_pose_.rotation);
-          init_state.grav = S2(init_state.rot * V3D(0, 0, -G_m_s2));
-          init_state.vel = V3D(0, 0, 0);
-          Eigen::Vector3d new_grav(init_state.grav[0], init_state.grav[1], init_state.grav[2]);
-          kf_state.change_x(init_state);
-          rtk_need_init_ = false;
-          std::cout << "[RTK DEBUG] State override:" << std::endl;
-          std::cout << "  pos: " << old_pos.transpose() << " -> " << imu_pos.transpose()
-                    << " (rtk_ant=" << init_rtk_pose_.position.transpose() << ")" << std::endl;
-          std::cout << "  grav: " << old_grav.transpose() << " -> " << new_grav.transpose() << std::endl;
-          std::cout << "  rot_w=" << init_rtk_pose_.rotation.w << " vel=0" << std::endl;
-      }
-      /** ==================== RTK Extension: Init State Override (END) ==================== **/
-
       cov_acc = cov_acc_scale;
       cov_gyr = cov_gyr_scale;
       std::cout << "IMU Initial Done" << std::endl;
@@ -410,6 +384,34 @@ void ImuProcess::Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom, 
 
     return;
   }
+
+  /** ==================== RTK Extension: Init State Override ==================== **/
+  // IMU初始化完成后, 用RTK位姿覆盖EKF初始状态:
+  //   - pos: 天线位置→IMU位置 (使用外参转换)
+  //   - rot: RTK姿态
+  //   - grav: 根据新rot重新计算重力方向
+  //   - vel: 置零 (静态初始化假设)
+  // 注意: 此代码放在imu_need_init_块之外, 这样即使RTK数据在IMU初始化之后才到达,
+  //       也能正确覆盖状态 (配合laserMapping.cpp中的RTK等待机制)
+  if (use_rtk_init_ && rtk_need_init_) {
+      state_ikfom init_state = kf_state.get_x();
+      Eigen::Vector3d imu_pos = init_rtk_pose_.toImuPosition();
+      Eigen::Vector3d old_pos = init_state.pos;
+      Eigen::Vector3d old_grav(init_state.grav[0], init_state.grav[1], init_state.grav[2]);
+      init_state.pos = vect3(imu_pos);
+      init_state.rot = SO3(init_rtk_pose_.rotation);
+      init_state.grav = S2(init_state.rot * V3D(0, 0, -G_m_s2));
+      init_state.vel = V3D(0, 0, 0);
+      Eigen::Vector3d new_grav(init_state.grav[0], init_state.grav[1], init_state.grav[2]);
+      kf_state.change_x(init_state);
+      rtk_need_init_ = false;
+      std::cout << "[RTK DEBUG] State override:" << std::endl;
+      std::cout << "  pos: " << old_pos.transpose() << " -> " << imu_pos.transpose()
+                << " (rtk_ant=" << init_rtk_pose_.position.transpose() << ")" << std::endl;
+      std::cout << "  grav: " << old_grav.transpose() << " -> " << new_grav.transpose() << std::endl;
+      std::cout << "  rot_w=" << init_rtk_pose_.rotation.w() << " vel=0" << std::endl;
+  }
+  /** ==================== RTK Extension: Init State Override (END) **/
 
   UndistortPcl(meas, kf_state, *cur_pcl_un_);
 

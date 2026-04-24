@@ -106,6 +106,7 @@ bool    is_first_lidar = true;
 /*** RTK全局变量 - 与原始FAST_LIO的改动区域 ***/
 bool   use_rtk = false;              // 是否启用RTK初始化
 bool   rtk_inited = false;           // RTK是否已初始化
+bool   rtk_debug = true;             // RTK调试输出开关, 初始化完成后自动关闭
 double rtk_wait_start_time = 0;     // 首帧LiDAR时间，用于等待RTK数据积累
 double rtk_wait_time = 2.0;         // RTK等待时间(秒), 从yaml配置读取
 RtkData init_rtk_pose;               // 初始RTK位姿 (用于记录)
@@ -405,10 +406,10 @@ void rtk_odom_cbk(const nav_msgs::msg::Odometry::ConstSharedPtr msg_in)
         rtk_buffer.push_back(rtk);
         size_t buf_size = rtk_buffer.size();
         mtx_buffer.unlock();
-        std::cout << "[RTK DEBUG] Odom recv: t=" << std::fixed << std::setprecision(3) << timestamp
+        if (rtk_debug) std::cout << "[RTK DEBUG] Odom recv: t=" << std::fixed << std::setprecision(3) << timestamp
                   << " pos=" << rtk.position.transpose() << " buf_size=" << buf_size << std::endl;
     } else {
-        std::cout << "[RTK DEBUG] Odom recv but INVALID: t=" << std::fixed << std::setprecision(3) << timestamp << std::endl;
+        if (rtk_debug) std::cout << "[RTK DEBUG] Odom recv but INVALID: t=" << std::fixed << std::setprecision(3) << timestamp << std::endl;
     }
 }
 
@@ -423,10 +424,10 @@ void rtk_navsat_cbk(const sensor_msgs::msg::NavSatFix::ConstSharedPtr msg_in)
         rtk_buffer.push_back(rtk);
         size_t buf_size = rtk_buffer.size();
         mtx_buffer.unlock();
-        std::cout << "[RTK DEBUG] NavSat recv: t=" << std::fixed << std::setprecision(3) << timestamp
+        if (rtk_debug) std::cout << "[RTK DEBUG] NavSat recv: t=" << std::fixed << std::setprecision(3) << timestamp
                   << " pos=" << rtk.position.transpose() << " buf_size=" << buf_size << std::endl;
     } else {
-        std::cout << "[RTK DEBUG] NavSat recv but INVALID: t=" << std::fixed << std::setprecision(3) << timestamp << std::endl;
+        if (rtk_debug) std::cout << "[RTK DEBUG] NavSat recv but INVALID: t=" << std::fixed << std::setprecision(3) << timestamp << std::endl;
     }
 }
 
@@ -492,7 +493,7 @@ bool sync_packages(MeasureGroup &meas, RtkData *out_rtk)
         if (rtk_buffer.empty()) {
             // 仅在前10帧打印，避免刷屏
             static int empty_count = 0;
-            if (empty_count < 10) {
+            if (empty_count < 10 && rtk_debug) {
                 std::cout << "[RTK DEBUG] sync_packages: rtk_buffer EMPTY, lidar_t="
                           << std::fixed << std::setprecision(3) << meas.lidar_beg_time << std::endl;
                 empty_count++;
@@ -500,7 +501,7 @@ bool sync_packages(MeasureGroup &meas, RtkData *out_rtk)
         }
         while (!rtk_buffer.empty()) {
             if (rtk_buffer.front().timestamp < meas.lidar_beg_time) {
-                std::cout << "[RTK DEBUG] sync_packages: DROP old rtk t="
+                if (rtk_debug) std::cout << "[RTK DEBUG] sync_packages: DROP old rtk t="
                           << std::fixed << std::setprecision(3) << rtk_buffer.front().timestamp
                           << " (lidar_t=" << meas.lidar_beg_time << ")" << std::endl;
                 rtk_buffer.pop_front();
@@ -509,13 +510,13 @@ bool sync_packages(MeasureGroup &meas, RtkData *out_rtk)
             if (rtk_buffer.front().timestamp <= meas.lidar_end_time) {
                 *out_rtk = rtk_buffer.front();
                 rtk_buffer.pop_front();
-                std::cout << "[RTK DEBUG] sync_packages: MATCHED rtk t="
+                if (rtk_debug) std::cout << "[RTK DEBUG] sync_packages: MATCHED rtk t="
                           << std::fixed << std::setprecision(3) << out_rtk->timestamp
                           << " in [" << meas.lidar_beg_time << ", " << meas.lidar_end_time << "]" << std::endl;
                 break;
             }
             // RTK数据时间戳晚于当前帧，保留等待下一帧
-            std::cout << "[RTK DEBUG] sync_packages: rtk t=" << std::fixed << std::setprecision(3)
+            if (rtk_debug) std::cout << "[RTK DEBUG] sync_packages: rtk t=" << std::fixed << std::setprecision(3)
                       << rtk_buffer.front().timestamp << " > lidar_end=" << meas.lidar_end_time
                       << ", keeping for next frame" << std::endl;
             break;
@@ -1124,28 +1125,32 @@ private:
             }
 
             /** ==================== RTK Initialization (after wait) ==================== **/
-            // 首帧LiDAR到来后，等待一段时间让RTK数据积累，再执行初始化
-            // 这样可以确保rtk_buffer中有足够的时间匹配数据
+            // RTK等待期间: 继续积累IMU数据, 但跳过建图
+            // 等待结束后: 先设置RTK初始化数据, 再让Process()应用RTK覆盖, 然后开始建图
             if (use_rtk && !rtk_inited) {
                 double elapsed = Measures.lidar_beg_time - rtk_wait_start_time;
-                if (elapsed >= rtk_wait_time) {
-                    size_t buf_sz = rtk_buffer.size();  // sync_packages已在锁外，此处近似读取
-                    std::cout << "[RTK DEBUG] Wait done. elapsed=" << std::fixed << std::setprecision(3) << elapsed
-                              << "s, rtk_buffer~=" << buf_sz
-                              << ", cur_rtk.valid=" << cur_rtk.valid << std::endl;
-                    if (cur_rtk.valid) {
-                        p_imu->set_rtk_init(cur_rtk, true);
-                        rtk_inited = true;
-                        init_rtk_pose = cur_rtk;
-                        std::cout << "[RTK DEBUG] Init SUCCESS: pos=" << cur_rtk.position.transpose()
-                                  << " rot_w=" << cur_rtk.rotation.w
-                                  << " t=" << std::fixed << std::setprecision(3) << cur_rtk.timestamp << std::endl;
-                    } else {
-                        std::cout << "[RTK DEBUG] Init SKIP: no valid RTK data after " << elapsed << "s wait"
-                                  << ", rtk_buffer~=" << buf_sz << std::endl;
-                        rtk_inited = true;  // 标记为已处理，避免重复检查
-                    }
+                if (elapsed < rtk_wait_time) {
+                    // 等待期间: 积累IMU数据, 但不建图
+                    p_imu->Process(Measures, kf, feats_undistort);
+                    return;
                 }
+                // 等待结束, 尝试RTK初始化
+                size_t buf_sz = rtk_buffer.size();  // sync_packages已在锁外，此处近似读取
+                std::cout << "[RTK DEBUG] Wait done. elapsed=" << std::fixed << std::setprecision(3) << elapsed
+                          << "s, rtk_buffer~=" << buf_sz
+                          << ", cur_rtk.valid=" << cur_rtk.valid << std::endl;
+                if (cur_rtk.valid) {
+                    p_imu->set_rtk_init(cur_rtk, true);
+                    init_rtk_pose = cur_rtk;
+                    std::cout << "[RTK DEBUG] Init SUCCESS: pos=" << cur_rtk.position.transpose()
+                              << " rot_w=" << cur_rtk.rotation.w()
+                              << " t=" << std::fixed << std::setprecision(3) << cur_rtk.timestamp << std::endl;
+                } else {
+                    std::cout << "[RTK DEBUG] Init SKIP: no valid RTK data after " << elapsed << "s wait"
+                              << ", rtk_buffer~=" << buf_sz << std::endl;
+                }
+                rtk_inited = true;  // 标记为已处理，避免重复检查
+                rtk_debug = false;  // 初始化完成，关闭调试输出
             }
             /** ==================== RTK Initialization (END) ==================== **/
 
